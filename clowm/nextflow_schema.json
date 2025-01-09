@@ -138,16 +138,19 @@
             "properties": {
                 "out_dir": {
                     "type": "string",
-                    "default": "output",
                     "format": "directory-path",
+                    "fa_icon": "fas fa-folder-open",
                     "description": "Directory for output of all user-facing files."
                 },
                 "prefix": {
                     "type": "string",
                     "description": "The prefix attached to each of the output filenames."
                 }
-            }
-        },
+            },
+            "required": [
+                "out_dir"
+            ]
+    },
         "advanced_options": {
             "title": "Advanced Options",
             "type": "object",
