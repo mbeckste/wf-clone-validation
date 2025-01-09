@@ -1,0 +1,15 @@
+{
+  "inputParameters": [
+      "fastq",
+      "bam",
+      "ref"
+  ],
+  "outputParameters": [
+      "out_dir"
+  ],
+  "exampleParameters": {
+      "fastq": "s3://workflow-exampledata/epi2me-ont-clone-validation/fastq", 	
+      "primers": "s3://workflow-exampledata/epi2me-ont-clone-validation/primers.tsv",
+      "sample_sheet": "s3://workflow-exampledata/epi2me-ont-clone-validation/sample_sheet.csv"
+  }
+}
