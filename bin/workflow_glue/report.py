@@ -47,17 +47,18 @@ def format_msa(inserts):
     return reorg_slices
 
 
-def button_format(reason):
-    """Format button, blue for success, red for failure."""
-    if reason == "Completed successfully":
-        return """<span class="badge bg-primary">""" + reason + """</span>"""
+def format_badge(status):
+    """Format badge, green for success, red for failure."""
+    if status == "Completed successfully" or status is True:
+        badge = 'badge-pass-solid'
+        if status is True:
+            status = 'Pass'
     else:
-        return """<span class="badge bg-danger">""" + reason + """</span>"""
-
-
-def format_tick_cross(is_expected):
-    """Return a formatted tick or cross."""
-    return raw("&#9989;") if (is_expected is True) else raw("&#10060;")
+        badge = 'badge-fail-solid'
+        if not isinstance(status, str):
+            status = 'Fail'
+    return '<span class="badge badge-icon-solid rounded-pill p-2 ' + \
+        badge + '">' + status + '</span>'
 
 
 def add_expected_column(
@@ -74,7 +75,7 @@ def add_expected_column(
                 ['Sample name', 'expected']],
                 how="outer", left_on='Sample', right_on='Sample name')
     merged[column_name] = merged.apply(
-            lambda x: format_tick_cross(x['expected']),
+            lambda x: format_badge(x['expected']),
             axis=1)
     merged = merged.drop('Sample name', axis=1)
     merged = merged.drop('expected', axis=1)
@@ -97,54 +98,16 @@ def main(args):
             args.status, plannotate_annotations)
     # Sample status table place holder
     sample_status_table = report.add_section("Sample status", "Sample status")
-    with sample_status_table:
-        p("""
-This table gives the status of each sample, either completed \
-successfully or the reason the assembly failed. \
-If applicable the mean quality for the whole \
-construct has been provided, derived by Medaka \
-from aligning the reads to the consensus.
-""")
-        if args.assembly_tool == "flye":
-            raw("""
-The assembly was generated using <a href="https://github.com/fenderglass/Flye">Flye</a>.
-        """)
-        else:
-            # Must be canu
-            raw("""
-The assembly was generated using <a href="https://github.com/marbl/canu">Canu</a>.
-        """)
-        lengths = json.load(open(args.lengths))
-        sample_stats = []
-        for item in sample_names:
-            try:
-                stats_table = [item] + [int(lengths[item]['reflen'])]
-            except KeyError:
-                stats_table = [item] + ['N/A']
-            sample_stats.append(stats_table)
-        stats_df = pd.DataFrame(
-            sample_stats, columns=["Sample", "Length"])
-        status_df = pd.DataFrame(
-            sample_status_dic.items(),
-            columns=['Sample', 'Assembly completed / failed reason'])
-        sort_df = status_df['Sample'].astype(str).argsort()
-        status_df = status_df.iloc[sort_df]
-        merged_status_df = pd.merge(status_df, stats_df)
-        merged_status_df.to_csv('sample_status.txt', index=False)
-        if ('assembly_quality/OPTIONAL_FILE' not in args.assembly_quality):
-            qc_df = read_files(args.assembly_quality)[
-                ['sample_name', 'mean_quality']]
-            qc_df = qc_df.rename(columns={
-                'sample_name': 'Sample', 'mean_quality': 'Mean Quality'})
-            qc_df = qc_df.reset_index(drop=True)
-            merged_status_df = pd.merge(merged_status_df, qc_df, how="outer")
-            # N/A for samples which failed assembly
-            merged_status_df.fillna('N/A', inplace=True)
-            merged_status_df['Assembly completed / failed reason'] = \
-                merged_status_df.apply(
-                    lambda x: button_format(
-                        x['Assembly completed / failed reason']),
-                    axis=1)
+    lengths = json.load(open(args.lengths))
+    sample_stats = []
+    for item in sample_names:
+        try:
+            stats_table = [item] + [int(lengths[item]['reflen'])]
+        except KeyError:
+            stats_table = [item] + ['N/A']
+        sample_stats.append(stats_table)
+    stats_df = pd.DataFrame(
+        sample_stats, columns=["Sample", "Length"])
     with report.add_section("Plannotate", "Plannotate"):
         raw("""The Plasmid annotation plot and feature table are produced using \
 <a href="http://plannotate.barricklab.org/">pLannotate</a>""")
@@ -233,7 +196,8 @@ if a host reference was provided.
             with tabs.add_dropdown_menu():
                 for ref, inserts in json_combined.items():
                     with tabs.add_dropdown_tab(ref):
-                        seq_segment = pd.read_json(inserts['bed_df'])
+                        seq_segment = pd.read_json(
+                            inserts['bed_df'], dtype={'Sample': str})
                         insert_df = seq_segment.merge(stats_df, how='left')
                         insert_df['Insert length'] = list(
                             map(
@@ -262,21 +226,20 @@ if a host reference was provided.
                             formatted_msa = format_msa(inserts)
                             pre(os.linesep.join(formatted_msa))
 
+    # Dictionary to collect fields to be added to sample status table
+    sample_status_fields = {}
     if ('OPTIONAL_FILE' not in os.listdir(args.qc_inserts)):
         if args.insert_alignment_bamstats:
-            df = report_utils.bamstats_table(
+            insert_qc_df = report_utils.bamstats_table(
                 args.insert_alignment_bamstats,
                 passed_samples)
-            merged_status_df = add_expected_column(
-                df, merged_status_df,
-                "Expected insert",
-                expected_coverage, expected_identity)
+            sample_status_fields["Expected insert"] = insert_qc_df
             with report.add_section("Insert QC", "Insert QC"):
                 p("""
 This section can be used to ensure the provided insert reference
 matches the insert found in the assembly.
 
-The table belows shows coverage and BLAST identity between
+The table below shows coverage and BLAST identity between
 the two.
 
 Reference coverage is the percentage of the provided insert reference
@@ -291,7 +254,7 @@ If both coverage and identity are 0,
 the assembled insert did not align with the provided insert
 reference.
 """)
-                DataTable.from_pandas(df, use_index=False)
+                DataTable.from_pandas(insert_qc_df, use_index=False)
 
         with report.add_section("Insert variants", "Insert variants"):
             p("""
@@ -323,13 +286,10 @@ None of the assemblies found aligned with the provided reference.
 """)
     if args.reference_alignment_bamstats:
         # Use bamstats to output table with coverage and identity per sample
-        df = report_utils.bamstats_table(
+        assembly_df = report_utils.bamstats_table(
             args.reference_alignment_bamstats,
             passed_samples)
-        merged_status_df = add_expected_column(
-            df, merged_status_df,
-            "Expected Assembly",
-            expected_coverage, expected_identity)
+        sample_status_fields["Expected Assembly"] = assembly_df
         with report.add_section("Full construct QC", "Construct QC"):
             p("""
 This section can be used to ensure the provided reference matches the assembly.
@@ -341,14 +301,14 @@ Reference coverage is the percentage of the provided reference sequence covered
 in the alignment with the assembled construct.
 
 Assembly coverage is the percentage of assembled
-contruct sequence covered in the alignment with the provided reference.
+construct sequence covered in the alignment with the provided reference.
 
 BLAST Identity is calculated as: (length - ins - del - sub) / length.
 
 If both coverage and identity are 0, the assembly did not align with the provided
 reference.
 """)
-            DataTable.from_pandas(df, use_index=False)
+            DataTable.from_pandas(assembly_df, use_index=False)
             if args.full_assembly_variants:
                 p("""
     Additionally, BCFtools was used to report any variants between
@@ -366,18 +326,63 @@ reference.
                     args.full_assembly_variants, report)
                 trans_df = trans_df.sort_values(by='id')
                 DataTable.from_pandas(trans_df, use_index=False)
-    if args.reference_alignment_bamstats or args.insert_alignment_bamstats:
-        # If references provided add explanation of the expected_assembly
-        # and expected insert columns to the report.
-        with sample_status_table:
+    # Add info to the status table in the sample status section
+    with sample_status_table:
+        p("""
+This table gives the status of each sample, either completed \
+successfully or the reason the assembly failed. \
+If applicable the mean quality for the whole \
+construct has been provided, derived by Medaka \
+from aligning the reads to the consensus.
+""")
+        if args.assembly_tool == "flye":
+            raw("""
+The assembly was generated using <a href="https://github.com/fenderglass/Flye">Flye</a>.
+        """)
+        else:
+            # Must be canu
+            raw("""
+The assembly was generated using <a href="https://github.com/marbl/canu">Canu</a>.
+        """)
+        if args.reference_alignment_bamstats or args.insert_alignment_bamstats:
+            # If references provided add explanation of the expected_assembly
+            # and expected insert columns to the report.
             raw("""
 The assemblies and/or inserts were aligned with provided references and
 marked as expected if they meet both the acceptance
 criteria defined by the expected_coverage and expected_identity
 parameters which have been set to {}% and {}% respectively.
 """.format(expected_coverage, expected_identity))
-    # Add the final merged status table to the sample status section
-    with sample_status_table:
+
+        status_df = pd.DataFrame(
+            sample_status_dic.items(),
+            columns=['Sample', 'Assembly completed / failed reason'])
+        sort_df = status_df['Sample'].astype(str).argsort()
+        status_df = status_df.iloc[sort_df]
+        # Length
+        merged_status_df = pd.merge(status_df, stats_df)
+        merged_status_df.to_csv('sample_status.txt', index=False)
+        # Mean quality
+        if ('assembly_quality/OPTIONAL_FILE' not in args.assembly_quality):
+            qc_df = read_files(args.assembly_quality, dtype={'sample_name': str})[
+                ['sample_name', 'mean_quality']]
+            qc_df = qc_df.rename(columns={
+                'sample_name': 'Sample', 'mean_quality': 'Mean Quality'})
+            qc_df = qc_df.reset_index(drop=True)
+            merged_status_df = pd.merge(merged_status_df, qc_df, how="outer")
+            # N/A for samples which failed assembly
+            merged_status_df.fillna('N/A', inplace=True)
+        merged_status_df['Assembly completed / failed reason'] = \
+            merged_status_df.apply(
+                lambda x: format_badge(
+                    x['Assembly completed / failed reason']),
+                axis=1)
+        # Expected assembly/inserts
+        for expected_column in sample_status_fields.keys():
+            merged_status_df = add_expected_column(
+                sample_status_fields[expected_column], merged_status_df,
+                expected_column,
+                expected_coverage, expected_identity)
         DataTable.from_pandas(merged_status_df, use_index=False)
     # dot plots
     if ('OPTIONAL_FILE' not in os.listdir(args.mafs)):
@@ -431,11 +436,16 @@ last</a>
                 p(error)
     if args.cutsite_csv:
         with report.add_section("Linearisation efficiency", "Linearisation"):
-            raw("""This table gives the percentage of reads which did not align
-                across the cutsite provided in the sample sheet and therefore
-                assumed to be linearized correctly.
-                """)
-            cutsite_table = report_utils.get_cutsite_table(args.cutsite_csv)
+            p("""This table gives the percentage of reads which did not align
+                across the cutsite provided in the sample sheet, and are therefore
+                assumed to be linearised correctly.\n""")
+            p("""This is calculated by comparing the reference sequence
+                with the reads, so this metric will still be
+                produced for failed assemblies.\n""")
+            p("""Furthermore, if a cut site was not provided for a
+                sample, this metric will be N/A.\n""")
+            cutsite_table = report_utils.get_cutsite_table(
+                args.cutsite_csv, sample_names)
             DataTable.from_pandas(cutsite_table, use_index=False)
     report.write(args.report)
     logger.info(f"Report written to {args.report}.")

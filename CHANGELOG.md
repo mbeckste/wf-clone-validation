@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.8.0]
+### Changed
+- Updated pass/fail badges in report sample status table.
+- Minor decrease to some memory directives to avoid “Process requirement exceeds available memory” errors when running in WSL.
+- Default trim length set to 0 since trimming is already done by MinKNOW.
+### Fixed
+- The workflow no longer fails if the aliases in the sample sheet are numbers when primers are provided.
+- Increase memory of `inserts` process to avoid pipeline terminated with an error exit status (137).
+- Plannotate annotation infernal index error, retries and then gracefully fails for the sample, with error message provided in the wf-clone-validation-report.html.
+- Fixed over-deconcatenation of assembly when there are multiple repeats. Previously the assembly could end up shorter than the provided approximate length due to other sections of sequence being removed instead of repeats.
+### Added
+- `min_quality` parameter to set the minimum average quality required for reads to be used in assembly (default 9). This adds more flexibility to the workflow and can improve assembly when high quality reads are available.
+
+## [v1.7.3]
+### Fixed
+- Typos in "Full construct QC" section of report
+- Increased mutation rate prior for bcftools call in assembly_comparison to prevent filtering of variants.
+- Hidden sections weren't correctly hidden in MinKNOW
+### Changed
+- Linearisation table includes rows for not applicable samples.
+
+## [v1.7.2]
+This is a re-release of v1.7.1 with support for MinKNOW integration.
+### Changed
+- Added MinKNOW support to workflow schema.
+
 ## [v1.7.1]
 ### Changed
 - Reconciled workflow with wf-template v5.3.4.
